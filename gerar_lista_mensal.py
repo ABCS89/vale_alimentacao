@@ -17,16 +17,29 @@ def main():
     print("=" * 60)
 
     # 1. Localiza os PDFs disponíveis em data/
-    pdfs = glob.glob(os.path.join("data", "*.pdf"))
-    if not pdfs:
+    todos_pdfs = glob.glob(os.path.join("data", "*.pdf"))
+    if not todos_pdfs:
         print("❌ ERRO: Nenhum arquivo PDF encontrado na pasta 'data/'.")
         print("Por favor, coloque o relatório 'Funcionário por Cargo - MM-AAAA.pdf' na pasta 'data/'.")
         sys.exit(1)
 
-    # Ordena para pegar o mais recente ou o primeiro
-    pdf_selecionado = sorted(pdfs)[-1]
+    # Identifica PDF de transferências (se houver, ex: relatorio_tranferencia... ou relatorio_transferencia...)
+    is_transf = lambda p: ("tranfer" in os.path.basename(p).lower() or "transfer" in os.path.basename(p).lower())
+    pdfs_transferencias = [p for p in todos_pdfs if is_transf(p)]
+    pdf_transferencias = sorted(pdfs_transferencias)[-1] if pdfs_transferencias else None
+
+    # Identifica PDF oficial de admissões (Funcionário por Cargo)
+    pdfs_admissoes = [p for p in todos_pdfs if not is_transf(p)]
+    if not pdfs_admissoes:
+        print("❌ ERRO: Nenhum relatório de admissões ('Funcionário por Cargo') encontrado na pasta 'data/'.")
+        sys.exit(1)
+
+    pdf_selecionado = sorted(pdfs_admissoes)[-1]
     nome_pdf = os.path.basename(pdf_selecionado)
-    print(f"📄 Arquivo PDF detectado: {nome_pdf}")
+    print(f"📄 Relatório de Admissões detectado: {nome_pdf}")
+    if pdfs_transferencias:
+        nomes_transf = ", ".join([os.path.basename(p) for p in pdfs_transferencias])
+        print(f"📄 Relatório(s) de Transferências detectado(s): {nomes_transf}")
 
     # Tenta extrair mês e ano do nome do arquivo (ex: "09-2026")
     m = re.search(r'(\d{2})[-_](\d{4})', nome_pdf)
@@ -46,7 +59,11 @@ def main():
     print("\nProcessando cruzamento e gerando folhas de entrega...")
 
     try:
-        arquivo_gerado = processar_mes(pdf_selecionado, mes_ano_referencia=mes_ref)
+        arquivo_gerado = processar_mes(
+            pdf_selecionado,
+            mes_ano_referencia=mes_ref,
+            caminho_transferencias=pdfs_transferencias
+        )
         print("\n" + "=" * 60)
         print("🎉 PROCESSO CONCLUÍDO COM SUCESSO!")
         print(f"📁 Planilha salva em: {arquivo_gerado}")

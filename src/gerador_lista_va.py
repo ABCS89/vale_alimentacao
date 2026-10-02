@@ -1,5 +1,6 @@
 import os
 import sys
+import glob
 
 # Garante que a raiz do projeto esteja no sys.path para qualquer forma de execução
 diretorio_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -21,6 +22,7 @@ try:
         verificar_troca_centro_custo_usecred
     )
     from src.leitor_pdf import extrair_funcionarios_pdf
+    from src.leitor_transferencias import extrair_transferencias_pdf
 except ImportError:
     from mapeamento import (
         normalizar_texto,
@@ -31,6 +33,7 @@ except ImportError:
         verificar_troca_centro_custo_usecred
     )
     from leitor_pdf import extrair_funcionarios_pdf
+    from leitor_transferencias import extrair_transferencias_pdf
 
 
 def carregar_base_inicial(caminho_inicial="data/entrega_inicial"):
@@ -106,9 +109,9 @@ def carregar_base_inicial(caminho_inicial="data/entrega_inicial"):
     return mapa_servidores
 
 
-def processar_mes(caminho_pdf, mes_ano_referencia="Setembro/2026", output_path=None):
+def processar_mes(caminho_pdf, mes_ano_referencia="Setembro/2026", output_path=None, caminho_transferencias=None):
     """
-    Processa os admitidos do PDF e cruza com a planilha de escolhas.
+    Processa os admitidos do PDF e cruza com a planilha de escolhas e transferências.
     """
     mapa_codigos, mapa_termos = carregar_mapa_secretarias("data/siglas secretarias.ods")
     base_historico = carregar_base_inicial("data/entrega_inicial")
@@ -189,7 +192,21 @@ def processar_mes(caminho_pdf, mes_ano_referencia="Setembro/2026", output_path=N
                         motivo = f"USECRED: Admissão (Centro: {cc_novo})"
                 else:
                     if ja_existia:
-                        motivo = "Servidor Antigo / Troca de Cargo"
+                        hist = base_historico[nn]
+                        emp_ant = hist.get("empresa_anterior", "OUTRA")
+                        
+                        if emp_ant == empresa_padrao:
+                            # Regra: Já possui cartão ativo da mesma operadora, mantém o existente
+                            gerar_novo_cartao = False
+                            alertas.append({
+                                "funcional": s['funcional'],
+                                "nome": s['nome'],
+                                "secretaria": sec_padrao,
+                                "empresa": empresa_padrao,
+                                "situacao": f"Mantém cartão existente. Já possui cartão ativo da operadora ({empresa_padrao}) - Sem novo cartão"
+                            })
+                        else:
+                            motivo = f"Troca de Operadora ({emp_ant} -> {empresa_padrao})"
                     else:
                         motivo = "Novo Servidor (Admissão)"
 
@@ -213,8 +230,106 @@ def processar_mes(caminho_pdf, mes_ano_referencia="Setembro/2026", output_path=N
                 "empresa": "PENDENTE",
                 "situacao": "Consta no relatório de admissão mas NÃO preencheu escolha de operadora"
             })
-
             
+    # 3.1 Cruzamento com Relatório de Transferências (Regra Especial USECRED)
+    if caminho_transferencias:
+        if isinstance(caminho_transferencias, str):
+            lista_arquivos_transf = [caminho_transferencias]
+        else:
+            lista_arquivos_transf = list(caminho_transferencias)
+    else:
+        transf_files = glob.glob(os.path.join("data", "*tranfer*.pdf")) + glob.glob(os.path.join("data", "*transfer*.pdf"))
+        lista_arquivos_transf = sorted(list(set(transf_files)))
+
+    transferencias = []
+    chaves_transf_vistas = set()
+    for arq_transf in lista_arquivos_transf:
+        if os.path.exists(arq_transf):
+            t_extraidas = extrair_transferencias_pdf(arq_transf)
+            for t_item in t_extraidas:
+                chave = (t_item['funcional'], t_item['dt_ini'], t_item['sec_ini_cod'])
+                if chave not in chaves_transf_vistas:
+                    chaves_transf_vistas.add(chave)
+                    transferencias.append(t_item)
+
+    if transferencias:
+        print(f"-> Total de transferências carregadas (desduplicadas): {len(transferencias)}")
+        
+        meses_dict = {
+            "JANEIRO": 1, "FEVEREIRO": 2, "MARCO": 3, "MARÇO": 3, "ABRIL": 4,
+            "MAIO": 5, "JUNHO": 6, "JULHO": 7, "AGOSTO": 8,
+            "SETEMBRO": 9, "OUTUBRO": 10, "NOVEMBRO": 11, "DEZEMBRO": 12
+        }
+        meses_nomes = {
+            1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+            5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+            9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+        }
+        
+        ref_mes = 9
+        ref_ano = 2026
+        partes_ref = mes_ano_referencia.replace("-", "/").split("/")
+        if len(partes_ref) == 2:
+            m_str = normalizar_texto(partes_ref[0])
+            a_str = partes_ref[1].strip()
+            ref_mes = int(m_str) if m_str.isdigit() else meses_dict.get(m_str, 9)
+            if a_str.isdigit():
+                ref_ano = int(a_str)
+                
+        funcionais_ja_na_lista = {s['funcional'] for s in lista_final}
+        funcionais_ja_nos_alertas = {a['funcional'] for a in alertas}
+        
+        for t in transferencias:
+            nn = normalizar_texto(t['nome'])
+            hist = base_historico.get(nn)
+            if not hist:
+                continue
+                
+            empresa_hist = hist.get("empresa_anterior", "")
+            
+            # Regra para USECRED em transferências
+            if empresa_hist == "USECRED" and t['sec_fim_cod'] != t['sec_ini_cod']:
+                sec_orig = mapa_codigos.get(t['sec_fim_cod'], f"Sec {t['sec_fim_cod']}")
+                sec_dest = mapa_codigos.get(t['sec_ini_cod'], f"Sec {t['sec_ini_cod']}")
+                trocou_cc, cc_ant, cc_novo = verificar_troca_centro_custo_usecred(sec_orig, sec_dest)
+                
+                if trocou_cc and t['dt_ini_dt']:
+                    t_mes = t['dt_ini_dt'].month
+                    t_ano = t['dt_ini_dt'].year
+                    
+                    # Regra do mês seguinte para entrega do cartão USECRED
+                    m_entrega = t_mes + 1 if t_mes < 12 else 1
+                    a_entrega = t_ano if t_mes < 12 else t_ano + 1
+                    nome_mes_entrega = meses_nomes.get(m_entrega, str(m_entrega))
+                    
+                    # Caso 1: Mês atual de processamento é o mês da transferência
+                    # (Cartão ainda não chegou -> entra em Alertas com previsão para o próximo mês)
+                    if t_mes == ref_mes and t_ano == ref_ano:
+                        if t['funcional'] not in funcionais_ja_nos_alertas:
+                            alertas.append({
+                                "funcional": t['funcional'],
+                                "nome": t['nome'],
+                                "secretaria": sec_dest,
+                                "empresa": "USECRED",
+                                "situacao": f"USECRED: Transferido em {t['dt_ini']} ({cc_ant} -> {cc_novo}). Troca de Centro de Custo programada para entrega em {nome_mes_entrega}/{a_entrega} (mês seguinte à transferência)"
+                            })
+                            funcionais_ja_nos_alertas.add(t['funcional'])
+                            
+                    # Caso 2: Mês atual de processamento é exatamente o mês da entrega prevista
+                    # (Chegou o mês seguinte -> entra na folha de entrega imediata)
+                    elif ref_mes == m_entrega and ref_ano == a_entrega:
+                        if t['funcional'] not in funcionais_ja_na_lista:
+                            lista_final.append({
+                                "funcional": t['funcional'],
+                                "nome": t['nome'],
+                                "cargo": "TRANSFERÊNCIA",
+                                "admissao": t['dt_ini'],
+                                "secretaria": sec_dest,
+                                "empresa_va": "USECRED",
+                                "historico": f"USECRED: Troca de Centro de Custo ({cc_ant} -> {cc_novo}) - Transferência de {t['dt_ini']}"
+                            })
+                            funcionais_ja_na_lista.add(t['funcional'])
+
     print(f"-> Servidores elegíveis para novos cartões: {len(lista_final)}")
     print(f"-> Alertas / Pendências detectados: {len(alertas)}")
     

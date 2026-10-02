@@ -32,10 +32,13 @@ Documento para mapeamento das regras de concessão, descontos, afastamentos e pa
 ---
 
 ## 1. Critérios de Elegibilidade e Emissão de Cartão
-- Implementação inicial em Abril.
-- Servidores que já receberam na entrega inicial.
-- Novos servidores admitidos (precisam de cartão).
-- Servidores com alteração de cargo (precisam de novo cartão).
+- **Entrega Inicial (Abril):** Base histórica de servidores que já receberam cartão físico de sua respectiva operadora.
+- **Novos Servidores Admitidos:** Necessitam de emissão e entrega de cartão novo da operadora escolhida.
+- **Servidores Antigos / Reconduções / Alterações de Cargo:**
+  - **Mesma Operadora:** Se o servidor já possui cartão ativo da operadora escolhida (entregue na base inicial), **NÃO** deve ser gerado novo cartão para entrega (o saldo é creditado no cartão já existente em posse do servidor). Isso se aplica a **Pluxee, Ticket, VR, Verocard, etc.**
+  - **Troca de Operadora:** Se o servidor possuía uma operadora na entrega inicial e agora optou por outra diferente (ex: *Ticket ➔ Pluxee*), **deve ser gerado novo cartão** da nova operadora escolhida.
+  - **USECRED:** Segue a regra especial de Centros de Custo (ver abaixo).
+
 
 ---
 
@@ -52,7 +55,12 @@ A operadora **USECRED** possui uma regra particular de emissão vinculada exclus
    - **Mudança de Centro de Custo:** Servidor que já possui USECRED e mudou de secretaria/local acarretando **troca de Centro de Custo** (ex: *Educação ➔ ADMGOV*, *Saúde ➔ Educação*, *ADMGOV ➔ Saúde*).
 
 3. **⚠️ Exceção Importante (Quando NÃO gera novo cartão USECRED):**
-   - **Troca de Cargo no mesmo Centro de Custo:** Se o servidor já possui cartão USECRED e continua dentro do **mesmo centro de custo** (mesmo que tenha mudado de cargo ou mudado de secretaria dentro de ADMGOV), **NÃO** deve ser gerado novo cartão. O saldo continua caindo no cartão USECRED atual.
+   - **Troca de Cargo ou Transferência no mesmo Centro de Custo:** Se o servidor já possui cartão USECRED e continua dentro do **mesmo centro de custo** (mesmo que tenha mudado de cargo ou mudado de secretaria dentro do bloco ADMGOV), **NÃO** deve ser gerado novo cartão. O saldo continua caindo no cartão USECRED atual.
+
+4. **⏱️ Regra Temporal de Transferências USECRED (Emissão no Mês Seguinte):**
+   - Devido ao prazo operacional estendido para confecção e entrega do cartão pela operadora **USECRED**, servidores transferidos com **troca de Centro de Custo** têm a entrega de seu novo cartão programada para o **mês seguinte à data de início da transferência**:
+     - **No mês da transferência:** O servidor **NÃO** entra na folha de entrega daquele mês. É registrado na aba **Pendências e Alertas** informando a transferência e a previsão de entrega no mês seguinte.
+     - **No mês seguinte:** Ao processar o mês subsequente, o sistema inclui automaticamente o servidor na folha de entrega de sua nova secretaria.
 
 
 
@@ -63,8 +71,11 @@ A operadora **USECRED** possui uma regra particular de emissão vinculada exclus
 - *(a definir)*
 
 ## 4. Fontes de Dados / Arquivos de Entrada
-- `data/entrega_inicial/`: Planilhas `.ods` separadas por empresa com servidores divididos por secretaria.
-- `data/novos_e_alteracoes/`: Planilha/arquivo com novos servidores e trocas de cargo.
+- `data/Funcionário por Cargo - MM-AAAA.pdf`: Relatório oficial de servidores admitidos por cargo emitido pela SEMAD.
+- `data/relatorio_tranferencia_{mês}-{mês}-AAAA.pdf`: Relatórios periódicos de transferências de postos e secretarias emitidos pela SEMAD (são mantidos acumulados na pasta `data/` para garantir o histórico de emissão no mês seguinte da USECRED).
+- `data/entrega_inicial/`: Planilhas `.ods` e `.xls` separadas por empresa com servidores divididos por secretaria (base histórica de abril).
+- `data/novos_e_alteracoes/`: Planilha `Escolhas das empresas de Vale Alimentação.ods` com opções de operadoras cadastradas.
+- `data/siglas secretarias.ods`: Tabela oficial de de-para de códigos e nomenclaturas de secretarias.
 
 ## 5. Formato de Saída Esperado
 - *(a definir)*
